@@ -2,7 +2,7 @@ import requests
 
 from pyarcade.api.client import Client
 from pyarcade.api import config
-
+from typing import Optional, Any, List, Union
 from enum import Enum
 
 class DatabaseDao:
@@ -31,7 +31,7 @@ class DatabaseDao:
         return response
 
     @staticmethod
-    def create(client, name: str):
+    def create(client: Client, name: str) -> 'DatabaseDao':
         """
         Create a new database.
 
@@ -56,7 +56,7 @@ class DatabaseDao:
             raise ValueError(f"Could not create database {name}: {ret}")
 
     @staticmethod
-    def delete(client, name: str):
+    def delete(client: Client, name: str) -> bool:
         """
         Delete a database.
 
@@ -80,7 +80,7 @@ class DatabaseDao:
             raise ValueError(f"Could not drop database {name}: {ret}")
 
     @staticmethod
-    def list_databases(client):
+    def list_databases(client: Client) -> List:
         """
         List all databases.
 
@@ -112,7 +112,15 @@ class DatabaseDao:
         if not DatabaseDao.exists(client, database_name):
             raise ValueError(f"Database {database_name} does not exist, call create()")
 
-    def query(self, language, command, limit=None, params=None, serializer=None, session_id=None):
+    def query(
+        self,
+        language: str,
+        command: str,
+        limit: Optional[int] = None,
+        params: Optional[Any] = None,
+        serializer: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> Union[str, List, dict]:
         """
         Execute a query on the database.
 
@@ -151,7 +159,8 @@ class DatabaseDao:
         req = self.client.post(f"{config.ARCADE_BASE_QUERY_ENDPOINT}/{self.database_name}", payload, extra_headers=extra_headers)
         return req
 
-    def begin_transaction(self, isolation_level: IsolationLevel = IsolationLevel.READ_COMMITTED):
+    def begin_transaction(self, isolation_level: IsolationLevel = IsolationLevel.READ_COMMITTED) -> str:
+
         """
         Begin a new transaction.
 
@@ -164,7 +173,7 @@ class DatabaseDao:
         headers = self.client.post(f"{config.ARCADE_BASE_TRANSACTION_BEGIN_ENDPOINT}/{self.database_name}", {"isolationLevel": isolation_level.value}, return_headers=True)
         return headers["arcadedb-session-id"]
 
-    def commit_transaction(self, session_id):
+    def commit_transaction(self, session_id) -> None:
         """
         Commit a transaction.
 
@@ -173,7 +182,7 @@ class DatabaseDao:
         """
         self.client.post(f"{config.ARCADE_BASE_TRANSACTION_COMMIT_ENDPOINT}/{self.database_name}", {}, extra_headers={"arcadedb-session-id": session_id})
 
-    def rollback_transaction(self, session_id):
+    def rollback_transaction(self, session_id) -> None:
         """
         Rollback a transaction.
 
