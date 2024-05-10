@@ -119,7 +119,8 @@ class DatabaseDao:
         limit: Optional[int] = None,
         params: Optional[Any] = None,
         serializer: Optional[str] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        is_idempotent: Optional[bool] = False
     ) -> Union[str, List, dict]:
         """
         Execute a query on the database.
@@ -131,6 +132,7 @@ class DatabaseDao:
         - params: The parameters for the query (optional).
         - serializer (str): The serializer for the query results (optional).
         - session_id: The session ID for the query (optional).
+        - is_idempotent: Read-only mode (optional)
 
         Returns:
         str: The result of the query.
@@ -156,7 +158,7 @@ class DatabaseDao:
         extra_headers = {}
         if session_id is not None:
             extra_headers["arcadedb-session-id"] = session_id
-        req = self.client.post(f"{config.ARCADE_BASE_QUERY_ENDPOINT}/{self.database_name}", payload, extra_headers=extra_headers)
+        req = self.client.post(f"{config.ARCADE_BASE_QUERY_ENDPOINT if is_idempotent is True else config.ARCADE_BASE_COMMAND_ENDPOINT}/{self.database_name}", payload, extra_headers=extra_headers)
         return req
 
     def begin_transaction(self, isolation_level: IsolationLevel = IsolationLevel.READ_COMMITTED) -> str:
