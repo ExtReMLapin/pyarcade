@@ -1,10 +1,18 @@
-from pyarcade.api import config
+from . import config
 from abc import ABC, abstractmethod
 
 import logging
 import requests
 
 from retry import retry
+
+class LoginFailedException(Exception):
+    
+    def __init__(self, javaErrorCode, message):
+        self.javaErrorCode = javaErrorCode
+        self.message = message
+        super().__init__(self.message)
+
 
 class Client(ABC):
     def __init__(self, host: str, port: str, protocol: str = "http", **kwargs):
@@ -22,10 +30,13 @@ class Client(ABC):
         endpoint_test = config.ARCADE_BASE_SERVER_ENDPOINT
         try:
             self.post(endpoint_test,  { "command": "list databases" })
-        except ValueError as e:
-            txt_valuerror = str(e)
-            if txt_valuerror == "com.arcadedb.server.security.ServerSecurityException":
+            
+        except LoginFailedException as e:
+
+            if e.javaErrorCode == "com.arcadedb.server.security.ServerSecurityException":
                 raise ValueError("Invalid credentials")
+            else:
+                raise ValueError("Unable to connect to server : ", e)
         except Exception as e:
             raise ValueError("Unable to connect to server : ", e)
         

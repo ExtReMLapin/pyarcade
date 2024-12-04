@@ -1,9 +1,19 @@
-import requests
 
-from pyarcade.api.client import Client
-from pyarcade.api import config
+from ..api.client import Client
+from ..api import config
 from typing import Optional, Any, List, Union
 from enum import Enum
+import re
+
+from pygments.lexers import get_lexer_by_name
+from pygments.token import string_to_tokentype
+
+cypher_lexer = get_lexer_by_name("py2neo.cypher")
+
+punctuation = string_to_tokentype("Token.Punctuation")
+global_var = string_to_tokentype("Token.Name.Variable.Global")
+string_liral = string_to_tokentype("Token.Literal.String")
+
 
 class DatabaseDao:
     """
@@ -111,6 +121,41 @@ class DatabaseDao:
         self.database_name = database_name
         if not DatabaseDao.exists(client, database_name):
             raise ValueError(f"Database {database_name} does not exist, call create()")
+        
+        
+    cypher_var_regex = re.compile(r'\$([a-zA-Z_][a-zA-Z0-9_]*)')
+    
+
+    @staticmethod
+    def cypher_formater(query: str, params: dict) -> str:
+
+        skipped_params = {}
+        tokens = list(cypher_lexer.get_tokens(query))
+        i = 0
+        len_tokens = len(tokens)
+        while i < len_tokens-1:
+            if tokens[i][0] == punctuation and tokens[i+1][0] == global_var:
+                var_name = tokens[i+1][1]
+                assert var_name in params, f"Variable {var_name} not found in the parameters"
+                if isinstance(params[var_name], str) and '$' in params[var_name]:
+                    skipped_params[var_name] = params[var_name]
+                    i += 2
+                    continue
+                if isinstance(params[var_name], list):
+                    skipped_params[var_name] = params[var_name]
+                    i += 2
+                    continue
+                
+                
+                escaped_string = str(params[var_name]).replace('\\', '\\\\').replace('\'', '\\\'')
+                tokens[i] = (string_liral, f"'{escaped_string}'")
+                tokens.pop(i+1)
+                len_tokens -= 1
+    
+            i += 1
+        return "".join([x[1] for x in tokens]), skipped_params
+    
+        
 
     def query(
         self,
@@ -120,7 +165,7 @@ class DatabaseDao:
         params: Optional[Any] = None,
         serializer: Optional[str] = None,
         session_id: Optional[str] = None,
-        is_idempotent: Optional[bool] = False
+        is_command: Optional[bool] = False
     ) -> Union[str, List, dict]:
         """
         Execute a query on the database.
@@ -132,7 +177,7 @@ class DatabaseDao:
         - params: The parameters for the query (optional).
         - serializer (str): The serializer for the query results (optional).
         - session_id: The session ID for the query (optional).
-        - is_idempotent: Read-only mode (optional)
+        - is_command: If the query is a command (optional), you need this to run non-idempotent commands.
 
         Returns:
         str: The result of the query.
@@ -144,7 +189,10 @@ class DatabaseDao:
             assert isinstance(limit, int), "Limit must be an integer"
         serializer = serializer.lower() if serializer else serializer
         assert serializer in {None, "graph", "record"}, "Serializer must be None, 'graph' or 'record'"
-
+        
+        if language == "cypher" and params:
+            command, new_params = self.cypher_formater(command, params)
+            params = new_params if len(new_params) > 0 else None
         payload = {
             "command": command,
             "language": language,
@@ -158,7 +206,8 @@ class DatabaseDao:
         extra_headers = {}
         if session_id is not None:
             extra_headers["arcadedb-session-id"] = session_id
-        req = self.client.post(f"{config.ARCADE_BASE_QUERY_ENDPOINT if is_idempotent is True else config.ARCADE_BASE_COMMAND_ENDPOINT}/{self.database_name}", payload, extra_headers=extra_headers)
+        req = self.client.post(f"{config.ARCADE_BASE_QUERY_ENDPOINT if is_command is False else config.ARCADE_BASE_COMMAND_ENDPOINT}/{self.database_name}", payload, extra_headers=extra_headers)
+        #log_fp.write(f"PAYLOAD : {json.dumps(payload)} => {json.dumps(req)}\n")
         return req
 
     def begin_transaction(self, isolation_level: IsolationLevel = IsolationLevel.READ_COMMITTED) -> str:

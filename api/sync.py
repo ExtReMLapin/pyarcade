@@ -1,4 +1,4 @@
-from pyarcade.api.client import Client
+from .client import Client, LoginFailedException
 
 import json
 import logging
@@ -12,8 +12,20 @@ class SyncClient(Client):
     def subhandler(self, response: requests.Response, return_headers: bool=False):
         if response.status_code >= 400 :
             json_decoded_data = response.json()
-            exc = json_decoded_data["exception"] if "detail" not in json_decoded_data else json_decoded_data["detail"]
-            raise ValueError(exc)
+            print(json_decoded_data)
+            java_error_code = json_decoded_data['exception'] if 'exception' in json_decoded_data else "Unknown error"
+            detail_error_code = None
+            if 'detail' in json_decoded_data:
+                detail_error_code = json_decoded_data['detail']
+            elif 'exception' in json_decoded_data:
+                detail_error_code = json_decoded_data['exception']
+            else:
+                detail_error_code = "Unknown error"
+            
+            if java_error_code == "com.arcadedb.server.security.ServerSecurityException":
+                raise LoginFailedException(java_error_code, detail_error_code)
+            else:
+                raise Exception(java_error_code, detail_error_code)
         
         response.raise_for_status()
         logging.debug(f"response: {response.text}")
