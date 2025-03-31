@@ -4,7 +4,7 @@ from ..api import config
 from typing import Optional, Any, List, Union
 from enum import Enum
 import re
-
+import psycopg
 from pygments.lexers import get_lexer_by_name
 from pygments.token import string_to_tokentype
 
@@ -24,6 +24,10 @@ class DatabaseDao:
         """Isolation levels for transactions"""
         READ_COMMITTED = "READ_COMMITTED"
         REPEATABLE_READ = "REPEATABLE_READ"
+        
+    class Driver(Enum):
+        HTTP="HTTP"
+        PSYCOPG="PSYCOPG"
 
     @staticmethod
     def exists(client, name: str) -> bool:
@@ -106,6 +110,8 @@ class DatabaseDao:
         self,
         client: Client,
         database_name: str,
+        driver:Driver=Driver.HTTP
+        
     ):
         """
         Initialize a DatabaseDao instance.
@@ -119,6 +125,22 @@ class DatabaseDao:
         """
         self.client = client
         self.database_name = database_name
+        self.driver = driver
+
+            
+        if self.driver == self.Driver.PSYCOPG:
+            port = self.client.port
+            if client.port == 2480:
+                print("Auto switching port to 5432 as we're using PSYCOPG driver")
+                port = 5432
+            self.connection = psycopg.connect(user=self.client.username, password=self.client.password,
+                    host=self.client.host,
+                    port=port,
+                    dbname=self.database_name,
+                    sslmode='disable'
+                )
+        else:
+            self.connection = None
         if not DatabaseDao.exists(client, database_name):
             raise ValueError(f"Database {database_name} does not exist, call create()")
         
@@ -202,12 +224,20 @@ class DatabaseDao:
         if params is not None:
             payload["params"] = params
         if serializer is not None:
+            assert self.driver == self.Driver.HTTP, "Serializer is only support with HTTP driver"
             payload["serializer"] = serializer
         extra_headers = {}
         if session_id is not None:
+            assert self.driver == self.Driver.HTTP, "Session ID is only support with HTTP driver"
             extra_headers["arcadedb-session-id"] = session_id
-        req = self.client.post(f"{config.ARCADE_BASE_QUERY_ENDPOINT if is_command is False else config.ARCADE_BASE_COMMAND_ENDPOINT}/{self.database_name}", payload, extra_headers=extra_headers)
-        #log_fp.write(f"PAYLOAD : {json.dumps(payload)} => {json.dumps(req)}\n")
+        if self.driver == self.Driver.HTTP:
+            req = self.client.post(f"{config.ARCADE_BASE_QUERY_ENDPOINT if is_command is False else config.ARCADE_BASE_COMMAND_ENDPOINT}/{self.database_name}", payload, extra_headers=extra_headers)
+        else:
+            with self.connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                prefix = "" if language == "sql" else f"{{{language}}}"
+                cursor.execute(query=prefix+command, params=params)
+                return cursor.fetchall()
+            
         return req
 
     def begin_transaction(self, isolation_level: IsolationLevel = IsolationLevel.READ_COMMITTED) -> str:
